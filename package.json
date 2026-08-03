@@ -9,9 +9,15 @@
     "loop": "node --env-file=.env src/agent.js loop",
     "status": "node --env-file=.env src/agent.js status",
     "once:live": "node --env-file=.env src/agent.js once --live",
-    "loop:live": "node --env-file=.env src/agent.js loop --live"
+    "loop:live": "node --env-file=.env src/agent.js loop --live",
+    "serve": "node --env-file=.env src/server.js",
+    "buy": "node --env-file=.env src/buyer.js",
+    "serve:live": "node --env-file=.env src/server.js --live"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "viem": "^2.55.10"
   }
 }

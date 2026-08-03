@@ -79,6 +79,18 @@ export async function transferUsdc({ to, amount, idempotencyKey }) {
   });
 }
 
+/**
+ * Gọi contract tuỳ ý. Hàm view trả thẳng kết quả; hàm ghi trả executionId.
+ * Đây là đường agent settle uỷ quyền EIP-3009 của x402 — nên doanh thu cũng
+ * chảy qua KeeperHub, không chỉ khoản chi.
+ */
+export async function contractCall({ idempotencyKey, ...body }) {
+  return call("/execute/contract-call", {
+    idempotencyKey,
+    body: { ...body, ...(config.simulate ? { simulate: true } : {}) },
+  });
+}
+
 export async function executionStatus(executionId) {
   return call(`/execute/${executionId}/status`, { method: "GET" });
 }
