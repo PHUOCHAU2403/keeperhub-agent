@@ -47,9 +47,12 @@ export const config = {
     sessionBudgetUsdc: Number(process.env.SESSION_BUDGET ?? 200),
   },
 
-  // Bật để chạy toàn bộ vòng lặp mà KHÔNG phát giao dịch lên chain.
-  // Mặc định BẬT — muốn chạy thật phải cố ý tắt.
-  simulate: process.env.SIMULATE !== "0",
+  // Chạy toàn bộ vòng lặp mà KHÔNG phát giao dịch lên chain.
+  //
+  // Mặc định BẬT — phát tiền thật phải là hành động cố ý. Tắt bằng cờ `--live`
+  // (chạy được ở mọi shell) hoặc SIMULATE=0. Dùng cờ vì cú pháp đặt biến môi
+  // trường trước lệnh chỉ đúng với bash, không đúng với PowerShell.
+  simulate: !(process.argv.includes("--live") || process.env.SIMULATE === "0"),
 
   intervalMs: Number(process.env.INTERVAL_MS ?? 60_000),
   ledgerPath: process.env.LEDGER || "data/ledger.jsonl",

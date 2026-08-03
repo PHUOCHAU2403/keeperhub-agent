@@ -7,7 +7,11 @@
   "scripts": {
     "once": "node --env-file=.env src/agent.js once",
     "loop": "node --env-file=.env src/agent.js loop",
-    "status": "node --env-file=.env src/agent.js status"
+    "status": "node --env-file=.env src/agent.js status",
+    "once:live": "node --env-file=.env src/agent.js once --live",
+    "loop:live": "node --env-file=.env src/agent.js loop --live"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

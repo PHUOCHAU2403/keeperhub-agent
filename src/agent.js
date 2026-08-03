@@ -66,9 +66,16 @@ export async function cycle(n = 1) {
 
   try {
     const r = await execute(intent, n);
-    const ok = r.status === "completed" && !r.error;
-    log(ok ? `✅ ${r.txHash ?? "(mô phỏng — không phát lên chain)"}` : `❌ ${r.status} ${r.error ?? ""}`);
-    record({ ...base, amount: intent.amount, to: intent.to, executed: ok && !config.simulate, simulated: config.simulate, ...r });
+    // KeeperHub trả "simulated" cho lượt chạy khô — đó là THÀNH CÔNG, không
+    // phải lỗi. Chỉ "completed" mới là đã lên chain.
+    const ok = ["completed", "simulated", "success"].includes(r.status) && !r.error;
+    const onChain = r.status === "completed" && !config.simulate;
+    log(
+      !ok ? `❌ ${r.status} ${r.error ?? ""}`
+        : onChain ? `✅ ${r.txHash}`
+        : `✅ mô phỏng đạt — API nhận lệnh, không phát lên chain`
+    );
+    record({ ...base, amount: intent.amount, to: intent.to, executed: onChain, simulated: config.simulate, ...r });
   } catch (e) {
     // Lỗi thực thi KHÔNG được tính là đã chi — nếu không, ngân sách phiên sẽ
     // trôi vì những lệnh chưa từng chạm chain.
