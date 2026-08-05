@@ -12,7 +12,7 @@
 // khi Binance bắt đầu chặn egress giữa chừng.
 
 import { createServer } from "node:http";
-import { config, usdc } from "./config.js";
+import { config, money } from "./config.js";
 import * as kh from "./keeperhub.js";
 import { challenge, readPayment, settlementCall } from "./x402.js";
 import { fairValue } from "./signal.js";
@@ -75,7 +75,7 @@ async function paidSignal(req, res) {
     txLink: settled.transactionLink ?? null,
     simulated: config.simulate,
   });
-  log(`💰 +${usdc(PRICE)} từ ${payment.authorization.from.slice(0, 10)}… ${settled.transactionHash ?? "(mô phỏng)"}`);
+  log(`💰 +${money(PRICE)} từ ${payment.authorization.from.slice(0, 10)}… ${settled.transactionHash ?? "(mô phỏng)"}`);
 
   json(res, 200, {
     resource: "/signal",
@@ -112,5 +112,5 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, () => {
   log(`dịch vụ chạy · http://localhost:${PORT} · ${config.chain.name} · ${config.simulate ? "MÔ PHỎNG" : "THẬT"}`);
-  log(`/signal giá ${usdc(PRICE)} · thu về ${config.wallet}`);
+  log(`/signal giá ${money(PRICE)} · thu về ${config.wallet}`);
 });

@@ -3,7 +3,8 @@
 // Chỉ bọc đúng bốn thứ agent cần: đọc số dư, chuyển token, gọi contract, và
 // theo dõi kết quả. Không cố bọc toàn bộ API — thứ không dùng thì không viết.
 
-import { config } from "./config.js";
+import { config, units, fromUnits } from "./config.js";
+import { encodeMemo } from "./memo.js";
 
 const ERC20_BALANCE_ABI = JSON.stringify([
   {
@@ -12,6 +13,29 @@ const ERC20_BALANCE_ABI = JSON.stringify([
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
+  },
+]);
+
+// TIP-20 — phần Tempo thêm vào ERC-20. `memo` là tham số indexed, nên lọc giao
+// dịch theo tham chiếu được ngay ở tầng log mà không phải quét toàn bộ block.
+//
+// `outputs: []` — KHÔNG phải bool như transfer() của ERC-20.
+//
+// Khai bool ở đây làm lệnh hỏng với thông báo `could not decode result data
+// (value="0x")`: contract trả về rỗng, còn bên gọi thì đang chờ 32 byte. Chỗ
+// mất thời gian là thông báo đó nói về tầng giải mã của ethers, không nói rằng
+// ABI mình khai lệch với contract — mà đó mới là nguyên nhân.
+const TIP20_MEMO_ABI = JSON.stringify([
+  {
+    name: "transferWithMemo",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "memo", type: "bytes32" },
+    ],
+    outputs: [],
   },
 ]);
 
@@ -47,33 +71,57 @@ async function call(path, { method = "POST", body, idempotencyKey } = {}) {
   return json.data ?? json;
 }
 
-/** Số dư USDC, trả về đơn vị người đọc được (USDC có 6 chữ số thập phân). */
-export async function usdcBalance(address = config.wallet) {
+/** Số dư stablecoin của chain đang chạy, quy về đơn vị người đọc được. */
+export async function balance(address = config.wallet) {
   const r = await call("/execute/contract-call", {
     body: {
-      contractAddress: config.chain.usdc,
+      contractAddress: config.chain.token.address,
       chainId: config.chain.id,
       functionName: "balanceOf",
       functionArgs: JSON.stringify([address]),
       abi: ERC20_BALANCE_ABI,
     },
   });
-  const raw = BigInt(r.result ?? r ?? 0);
-  return Number(raw) / 1e6;
+  return fromUnits(r.result ?? r ?? 0);
 }
 
 /**
- * Chuyển USDC. `simulate` đi thẳng vào request — KeeperHub sẽ kiểm tra mọi thứ
- * nhưng không phát lên chain, nên vòng lặp chạy thật được mà không tốn gì.
+ * Chuyển tiền trơn. `simulate` đi thẳng vào request — KeeperHub sẽ kiểm tra mọi
+ * thứ nhưng không phát lên chain, nên vòng lặp chạy thật được mà không tốn gì.
  */
-export async function transferUsdc({ to, amount, idempotencyKey }) {
+export async function transfer({ to, amount, idempotencyKey }) {
   return call("/execute/transfer", {
     idempotencyKey,
     body: {
       chainId: config.chain.id,
       recipientAddress: to,
       amount: String(amount),
-      tokenAddress: config.chain.usdc,
+      tokenAddress: config.chain.token.address,
+      ...(config.simulate ? { simulate: true } : {}),
+    },
+  });
+}
+
+/**
+ * Chuyển tiền KÈM tham chiếu đối soát, qua TIP-20 của Tempo.
+ *
+ * Phải đi đường contract-call chứ không dùng /execute/transfer: endpoint
+ * transfer chỉ biết `transfer(address,uint256)` chuẩn ERC-20, không có chỗ nào
+ * nhét memo vào. Đây cũng là lý do agent giữ contractCall làm nguyên thuỷ —
+ * mọi thứ ngoài ERC-20 chuẩn đều phải chui qua cửa đó.
+ */
+export async function transferWithMemo({ to, amount, memo, idempotencyKey }) {
+  if (!config.chain.memo) {
+    throw new Error(`${config.chain.name} không hỗ trợ memo trên chain`);
+  }
+  return call("/execute/contract-call", {
+    idempotencyKey,
+    body: {
+      contractAddress: config.chain.token.address,
+      chainId: config.chain.id,
+      functionName: "transferWithMemo",
+      functionArgs: JSON.stringify([to, units(amount), encodeMemo(memo)]),
+      abi: TIP20_MEMO_ABI,
       ...(config.simulate ? { simulate: true } : {}),
     },
   });

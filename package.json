@@ -5,6 +5,7 @@
   "type": "module",
   "description": "An agent with its own balance sheet — earns via x402, executes through KeeperHub.",
   "scripts": {
+    "test": "node --test ./test/rules.test.mjs ./test/memo.test.mjs",
     "once": "node --env-file=.env src/agent.js once",
     "loop": "node --env-file=.env src/agent.js loop",
     "status": "node --env-file=.env src/agent.js status",

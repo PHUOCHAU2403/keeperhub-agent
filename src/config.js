@@ -4,19 +4,50 @@ const CHAINS = {
   "base-sepolia": {
     id: 84532,
     name: "Base Sepolia",
-    usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-    explorer: "https://sepolia.basescan.org",
+    token: { address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", symbol: "USDC", decimals: 6 },
+    explorer: "https://sepolia.basescan.org/tx/",
+    rpc: "https://sepolia.base.org",
+    memo: false,
   },
   base: {
     id: 8453,
     name: "Base",
-    usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    explorer: "https://basescan.org",
+    token: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", symbol: "USDC", decimals: 6 },
+    explorer: "https://basescan.org/tx/",
+    rpc: "https://mainnet.base.org",
+    memo: false,
+  },
+
+  // Tempo Moderato — testnet của chain thanh toán do Stripe/Paradigm làm.
+  //
+  // Hai điểm khác Base, cả hai đều đã kiểm chứng bằng receipt của giao dịch
+  // 0x58a99c37…e7702 đọc thẳng từ RPC:
+  //
+  //   1. Không có token native. PHÍ TRẢ BẰNG CHÍNH STABLECOIN ĐANG CHUYỂN —
+  //      nó hiện ra như một Transfer ERC-20 nữa về `feeCollector` trong cùng
+  //      receipt. Nên chi phí và doanh thu cùng đơn vị: bảng cân đối của agent
+  //      khép lại được mà không cần quy đổi tỷ giá.
+  //   2. Ví agent tự đứng tên `from`, không qua relayer như bên Base.
+  //
+  // Explorer testnet nằm ở HOST RIÊNG, không phải tham số mạng trên host chính,
+  // và đường dẫn là /receipt/ chứ không phải /tx/ như các chain EVM khác. Cả
+  // hai đều hợp lý khi đã biết — Tempo coi một khoản thanh toán là tờ biên
+  // nhận, có memo in ngay trên đó và xuất được PDF — nhưng không đoán ra được.
+  "tempo-moderato": {
+    id: 42431,
+    name: "Tempo Moderato",
+    token: { address: "0x20c0000000000000000000000000000000000000", symbol: "PathUSD", decimals: 6 },
+    explorer: "https://explore.testnet.tempo.xyz/receipt/",
+    rpc: process.env.TEMPO_RPC || "https://rpc.moderato.tempo.xyz",
+    memo: true,
+    feeCollector: "0xfeec000000000000000000000000000000000000",
   },
 };
 
 const chainKey = process.env.CHAIN || "base-sepolia";
-if (!CHAINS[chainKey]) throw new Error(`CHAIN không hợp lệ: ${chainKey}`);
+if (!CHAINS[chainKey]) {
+  throw new Error(`CHAIN không hợp lệ: ${chainKey}. Chọn: ${Object.keys(CHAINS).join(", ")}`);
+}
 
 export const config = {
   chain: CHAINS[chainKey],
@@ -34,17 +65,17 @@ export const config = {
   treasury: process.env.TREASURY || process.env.AGENT_WALLET || "0x3dC7e1Cf08299Ba8ad3B0DeA271C0b58F51EC193",
 
   rules: {
-    // Giữ lại chừng này USDC làm vốn lưu động, phần vượt mới quét.
-    sweepFloorUsdc: Number(process.env.SWEEP_FLOOR ?? 5),
+    // Giữ lại chừng này làm vốn lưu động, phần vượt mới quét.
+    sweepFloor: Number(process.env.SWEEP_FLOOR ?? 5),
     // Dưới mức này thì không quét — tránh phát giao dịch cho vài xu lẻ.
-    sweepMinUsdc: Number(process.env.SWEEP_MIN ?? 1),
+    sweepMin: Number(process.env.SWEEP_MIN ?? 1),
   },
 
   guards: {
     // Trần tuyệt đối cho MỘT lệnh. Agent không bao giờ chuyển quá số này.
-    maxPerActionUsdc: Number(process.env.MAX_PER_ACTION ?? 50),
+    maxPerAction: Number(process.env.MAX_PER_ACTION ?? 50),
     // Tổng đã chi trong phiên. Chạm trần là dừng, không phải cảnh báo.
-    sessionBudgetUsdc: Number(process.env.SESSION_BUDGET ?? 200),
+    sessionBudget: Number(process.env.SESSION_BUDGET ?? 200),
   },
 
   // Chạy toàn bộ vòng lặp mà KHÔNG phát giao dịch lên chain.
@@ -58,4 +89,18 @@ export const config = {
   ledgerPath: process.env.LEDGER || "data/ledger.jsonl",
 };
 
-export const usdc = (n) => `${Number(n).toFixed(6)} USDC`;
+/**
+ * Định dạng tiền kèm ký hiệu CỦA CHAIN ĐANG CHẠY.
+ *
+ * Trước đây hàm này hardcode "USDC". Trên Tempo thì token là PathUSD, nên log
+ * sẽ nói dối về thứ agent vừa chuyển. Sổ sách của một agent cầm tiền không được
+ * phép ghi sai tên đồng tiền, kể cả ở dòng log.
+ */
+export const money = (n) => `${Number(n).toFixed(6)} ${config.chain.token.symbol}`;
+
+/** Đổi số người đọc được sang đơn vị nhỏ nhất của token. */
+export const units = (n) =>
+  BigInt(Math.round(Number(n) * 10 ** config.chain.token.decimals)).toString();
+
+/** Đổi ngược lại — dùng khi đọc số dư và phí từ chain. */
+export const fromUnits = (raw) => Number(BigInt(raw)) / 10 ** config.chain.token.decimals;

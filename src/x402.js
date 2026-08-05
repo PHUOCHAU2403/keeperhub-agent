@@ -10,7 +10,7 @@
 // lẫn đầu chi, không chỉ đầu chi.
 
 import { randomBytes } from "node:crypto";
-import { config } from "./config.js";
+import { config, units } from "./config.js";
 
 const USDC_EIP3009_ABI = JSON.stringify([
   {
@@ -33,8 +33,8 @@ const USDC_EIP3009_ABI = JSON.stringify([
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const unb64 = (s) => JSON.parse(Buffer.from(s, "base64").toString("utf8"));
 
-/** Giá tính bằng đơn vị nhỏ nhất — USDC 6 chữ số thập phân. */
-const toUnits = (usdcAmount) => String(Math.round(usdcAmount * 1e6));
+/** Giá tính bằng đơn vị nhỏ nhất của token trên chain đang chạy. */
+const toUnits = units;
 
 /**
  * Yêu cầu thanh toán theo x402 v2. Trả trong header `PAYMENT-REQUIRED` dạng
@@ -50,10 +50,10 @@ export function paymentRequirements({ resourceUrl, priceUsdc, description }) {
         scheme: "exact",
         network: `eip155:${config.chain.id}`,
         amount: toUnits(priceUsdc),
-        asset: config.chain.usdc,
+        asset: config.chain.token.address,
         payTo: config.wallet,
         maxTimeoutSeconds: 300,
-        extra: { name: "USDC", decimals: 6, version: "2" },
+        extra: { name: config.chain.token.symbol, decimals: config.chain.token.decimals, version: "2" },
       },
     ],
   };
@@ -111,7 +111,7 @@ export function readPayment(req, { priceUsdc }) {
  */
 export function settlementCall({ authorization, signature }) {
   return {
-    contractAddress: config.chain.usdc,
+    contractAddress: config.chain.token.address,
     chainId: config.chain.id,
     functionName: "transferWithAuthorization",
     functionArgs: JSON.stringify([

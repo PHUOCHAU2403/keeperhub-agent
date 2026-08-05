@@ -10,8 +10,9 @@
 //   node src/agent.js loop     chạy liên tục
 //   node src/agent.js status   tóm tắt sổ cái
 
-import { config, usdc } from "./config.js";
+import { config, money } from "./config.js";
 import * as kh from "./keeperhub.js";
+import { readReceipt } from "./receipt.js";
 import { decide, guard } from "./rules.js";
 import { record, summary, spentThisSession } from "./ledger.js";
 
@@ -19,13 +20,29 @@ const SESSION_START = new Date();
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 async function sense() {
-  return { usdc: await kh.usdcBalance(), at: Date.now() };
+  return { balance: await kh.balance(), at: Date.now() };
 }
 
 async function execute(intent, cycleNo) {
-  // Khoá idempotency gắn với chu kỳ + số tiền: retry mạng KHÔNG chuyển hai lần.
-  const key = `sweep-${config.chain.id}-${cycleNo}-${intent.amount}`;
-  const started = await kh.transferUsdc({ to: intent.to, amount: intent.amount, idempotencyKey: key });
+  // Khoá idempotency: retry mạng KHÔNG được chuyển tiền hai lần.
+  //
+  // Dựng từ tham chiếu đối soát chứ không từ số chu kỳ. Số chu kỳ đếm lại từ 1
+  // mỗi lần tiến trình khởi động, nên `sweep-<chain>-1-<số tiền>` sẽ đụng nhau
+  // giữa hai phiên bất cứ khi nào số tiền trùng — và khi đụng thì KeeperHub từ
+  // chối một khoản quét lẽ ra hợp lệ. Tham chiếu có sẵn ngày trong đó, nên khoá
+  // ổn định trong cùng ngày (retry gộp đúng) và khác nhau qua ngày mới.
+  const ref = intent.memo ?? `c${cycleNo}`;
+  const key = `sweep-${config.chain.id}-${ref}-${intent.amount}`;
+
+  // Cùng một ý định, hai đường thực thi. Chain nào chở được tham chiếu thì chở;
+  // chain nào không thì tham chiếu chỉ nằm trong sổ cái nội bộ. Sổ cái ghi rõ
+  // nó nằm ở đâu, vì "đối soát được bằng chain" và "đối soát được bằng sổ của
+  // chính agent" là hai mức tin cậy khác hẳn nhau.
+  const onChainMemo = Boolean(config.chain.memo && intent.memo);
+  const started = onChainMemo
+    ? await kh.transferWithMemo({ to: intent.to, amount: intent.amount, memo: intent.memo, idempotencyKey: key })
+    : await kh.transfer({ to: intent.to, amount: intent.amount, idempotencyKey: key });
+
   const final = started.executionId ? await kh.waitFor(started.executionId) : started;
 
   return {
@@ -35,15 +52,43 @@ async function execute(intent, cycleNo) {
     txLink: final.transactionLink ?? null,
     sponsored: final.result?.sponsored ?? null,
     error: final.error ?? null,
+    memo: intent.memo ?? null,
+    memoOnChain: onChainMemo,
   };
+}
+
+/**
+ * Đối chiếu lại với chain sau khi API báo xong.
+ *
+ * Không phải nghi ngờ KeeperHub — mà vì bên thực thi không nên là bên duy nhất
+ * xác nhận kết quả của chính mình. Đây cũng là chỗ agent đọc được PHÍ đã trả:
+ * trên Tempo phí thu bằng chính stablecoin vừa chuyển, nên nó khép luôn được
+ * chi phí vào bảng cân đối mà không cần quy đổi.
+ */
+async function confirm(txHash) {
+  try {
+    const r = await readReceipt(txHash);
+    if (!r) return { verified: false, why: "chưa có receipt" };
+    return {
+      verified: r.success,
+      onChainFrom: r.from,
+      blockNumber: r.blockNumber,
+      feeInToken: r.feeInToken,
+      memoOnChainValue: r.memo,
+    };
+  } catch (e) {
+    // Không đọc được chain thì nói là không đọc được. Tuyệt đối không im lặng
+    // coi như đã xác minh.
+    return { verified: false, why: e.message };
+  }
 }
 
 export async function cycle(n = 1) {
   const s = await sense();
-  log(`cảm: ${usdc(s.usdc)} trên ${config.chain.name}`);
-  record({ type: "cycle", cycle: n, usdcBalance: s.usdc, simulate: config.simulate });
+  log(`cảm: ${money(s.balance)} trên ${config.chain.name}`);
+  record({ type: "cycle", cycle: n, balance: s.balance, simulate: config.simulate });
 
-  const intent = decide(s);
+  const intent = decide({ ...s, cycle: n });
   if (!intent) { log("quyết: không quy tắc nào khớp"); return; }
 
   const base = { type: "decision", cycle: n, rule: intent.rule, action: intent.action, reason: intent.reason };
@@ -62,7 +107,8 @@ export async function cycle(n = 1) {
   }
 
   log(`quyết: ${intent.reason}`);
-  log(`thực thi: ${usdc(intent.amount)} → ${intent.to}${config.simulate ? "   [MÔ PHỎNG]" : ""}`);
+  log(`thực thi: ${money(intent.amount)} → ${intent.to}${config.simulate ? "   [MÔ PHỎNG]" : ""}`);
+  if (config.chain.memo) log(`         memo: ${intent.memo}`);
 
   try {
     const r = await execute(intent, n);
@@ -70,12 +116,22 @@ export async function cycle(n = 1) {
     // phải lỗi. Chỉ "completed" mới là đã lên chain.
     const ok = ["completed", "simulated", "success"].includes(r.status) && !r.error;
     const onChain = r.status === "completed" && !config.simulate;
+
+    const proof = onChain && r.txHash ? await confirm(r.txHash) : {};
+
     log(
       !ok ? `❌ ${r.status} ${r.error ?? ""}`
         : onChain ? `✅ ${r.txHash}`
         : `✅ mô phỏng đạt — API nhận lệnh, không phát lên chain`
     );
-    record({ ...base, amount: intent.amount, to: intent.to, executed: onChain, simulated: config.simulate, ...r });
+    if (onChain) {
+      if (config.chain.explorer) log(`   ${config.chain.explorer}${r.txHash}`);
+      log(`   chain xác nhận: ${proof.verified ? "có" : `KHÔNG (${proof.why ?? "?"})`}`);
+      if (proof.feeInToken != null) log(`   phí đã trả:     ${money(proof.feeInToken)}`);
+      if (proof.memoOnChainValue) log(`   memo trên chain: ${proof.memoOnChainValue}`);
+    }
+
+    record({ ...base, amount: intent.amount, to: intent.to, executed: onChain, simulated: config.simulate, ...r, ...proof });
   } catch (e) {
     // Lỗi thực thi KHÔNG được tính là đã chi — nếu không, ngân sách phiên sẽ
     // trôi vì những lệnh chưa từng chạm chain.

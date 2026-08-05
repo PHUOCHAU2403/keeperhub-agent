@@ -34,12 +34,31 @@ export function spentThisSession(since) {
 export function summary() {
   const rows = readLedger();
   const acted = rows.filter((r) => r.executed);
+  const withFee = acted.filter((r) => r.feeInToken != null);
+
   return {
     cycles: rows.filter((r) => r.type === "cycle").length,
     decisions: rows.filter((r) => r.action).length,
     executed: acted.length,
     heldBack: rows.filter((r) => r.action && !r.executed).length,
-    usdcMoved: acted.reduce((s, r) => s + Number(r.amount || 0), 0),
+    moved: acted.reduce((s, r) => s + Number(r.amount || 0), 0),
+
+    // Chi phí vận hành, cùng đơn vị với dòng tiền. Chỉ đo được trên chain thu
+    // phí bằng stablecoin (Tempo); nơi khác phí là gas token khác đơn vị, và ở
+    // đây được KeeperHub tài trợ nên agent không trả gì cả.
+    //
+    // `feeUnmeasured` để riêng, không gộp vào 0: "chưa đo được" và "bằng không"
+    // là hai chuyện khác nhau, gộp lại là làm bảng cân đối nói dối.
+    feesPaid: withFee.reduce((s, r) => s + Number(r.feeInToken), 0),
+    feeMeasured: withFee.length,
+    feeUnmeasured: acted.length - withFee.length,
+
+    // Bao nhiêu khoản đối soát được bằng chính chain, thay vì bằng sổ của agent.
+    memoOnChain: acted.filter((r) => r.memoOnChain).length,
+
+    // Đã đọc lại receipt từ RPC công khai và thấy thành công.
+    chainVerified: acted.filter((r) => r.verified).length,
+
     txs: acted.filter((r) => r.txHash).map((r) => r.txHash),
   };
 }
