@@ -31,12 +31,20 @@ export function spentThisSession(since) {
     .reduce((sum, r) => sum + Number(r.amount || 0), 0);
 }
 
-export function summary() {
-  const rows = readLedger();
+/**
+ * Tổng kết MỘT chain.
+ *
+ * Lọc theo chain là bắt buộc, không phải tuỳ chọn. Sổ cái chứa nhiều mạng, và
+ * `moved` cộng 15 USDC bên Base với 2 PathUSD bên Tempo sẽ ra một con số không
+ * có đơn vị — đúng loại số vô nghĩa mà agent lại dùng để định giá.
+ */
+export function summary(chain = config.chain.name) {
+  const rows = readLedger().filter((r) => r.chain === chain);
   const acted = rows.filter((r) => r.executed);
   const withFee = acted.filter((r) => r.feeInToken != null);
 
   return {
+    chain,
     cycles: rows.filter((r) => r.type === "cycle").length,
     decisions: rows.filter((r) => r.action).length,
     executed: acted.length,

@@ -115,3 +115,14 @@ export const units = (n) =>
 
 /** Đổi ngược lại — dùng khi đọc số dư và phí từ chain. */
 export const fromUnits = (raw) => Number(BigInt(raw)) / 10 ** config.chain.token.decimals;
+
+/**
+ * Link explorer cho một giao dịch, tra theo TÊN CHAIN ghi trong sổ cái.
+ *
+ * Sổ cái chứa nhiều chain, nên không dùng được config.chain hiện tại — một dòng
+ * Base cũ mà ghép với explorer Tempo thì ra link chết trỏ sai mạng.
+ */
+export function explorerFor(chainName, txHash) {
+  const c = Object.values(CHAINS).find((x) => x.name === chainName);
+  return c?.explorer && txHash ? c.explorer + txHash : null;
+}

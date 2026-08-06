@@ -17,6 +17,7 @@ import * as kh from "./keeperhub.js";
 import { readReceipt } from "./receipt.js";
 import { challenge, readPayment, settlementCall } from "./x402.js";
 import { unitEconomics, quote } from "./economics.js";
+import { renderDashboard } from "./dashboard.js";
 import { fairValue } from "./signal.js";
 import { record, readLedger, summary } from "./ledger.js";
 
@@ -156,6 +157,16 @@ createServer(async (req, res) => {
         entries: readLedger().slice(-50),
       });
     const q = priceNow();
+
+    // Trình duyệt xem trang, máy đọc JSON — cùng một URL, cùng một nguồn số.
+    if ((req.headers.accept || "").includes("text/html")) {
+      const rows = readLedger();
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      return res.end(
+        renderDashboard({ economics: unitEconomics(rows), summary: summary(), entries: rows, quote: q })
+      );
+    }
+
     return json(res, 200, {
       service: "An agent with its own balance sheet",
       chain: config.chain.name,
