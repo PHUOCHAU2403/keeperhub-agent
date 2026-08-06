@@ -78,6 +78,17 @@ export const config = {
     sessionBudget: Number(process.env.SESSION_BUDGET ?? 200),
   },
 
+  // Bên THU. Đối xứng với guards bên chi: một trần trên và một sàn dưới, và
+  // chạm giới hạn thì dừng chứ không nới.
+  pricing: {
+    // Giá niêm yết. Chỉ là điểm khởi đầu — chi phí đo được có thể đẩy nó lên.
+    price: Number(process.env.SIGNAL_PRICE ?? 0.01),
+    // Biên tối thiểu trên chi phí settle. 0.5 = đòi lãi gộp 50%.
+    minMargin: Number(process.env.MIN_MARGIN ?? 0.5),
+    // Trần giá. Chi phí đẩy giá sàn vượt mức này thì NGỪNG BÁN.
+    maxPrice: Number(process.env.MAX_PRICE ?? 0.05),
+  },
+
   // Chạy toàn bộ vòng lặp mà KHÔNG phát giao dịch lên chain.
   //
   // Mặc định BẬT — phát tiền thật phải là hành động cố ý. Tắt bằng cờ `--live`

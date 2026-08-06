@@ -14,24 +14,68 @@
 import { createServer } from "node:http";
 import { config, money } from "./config.js";
 import * as kh from "./keeperhub.js";
+import { readReceipt } from "./receipt.js";
 import { challenge, readPayment, settlementCall } from "./x402.js";
+import { unitEconomics, quote } from "./economics.js";
 import { fairValue } from "./signal.js";
 import { record, readLedger, summary } from "./ledger.js";
 
 const PORT = Number(process.env.PORT ?? 4182);
-const PRICE = Number(process.env.SIGNAL_PRICE ?? 0.01);
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+
+/**
+ * Giá cho lượt bán kế tiếp, suy ra từ sổ cái chứ không lấy từ hằng số.
+ *
+ * Gọi lại mỗi lượt: chi phí settle thay đổi theo tình trạng mạng, nên giá đọc
+ * một lần lúc khởi động sẽ cũ dần mà không ai biết.
+ */
+const priceNow = () => quote({ observedCost: unitEconomics(readLedger()).observedCost });
 
 const json = (res, code, body) => {
   res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": "*" });
   res.end(JSON.stringify(body, null, 2));
 };
 
+/**
+ * Phí đã trả để thu một khoản, đọc từ receipt trên chain.
+ *
+ * Trả null khi không đo được — lượt mô phỏng, hoặc chain tính phí bằng token
+ * khác. null sẽ được economics.js loại khỏi phép tính bình quân thay vì tính
+ * như 0, để agent không tưởng mình rẻ hơn thực tế.
+ */
+async function costOfSettling(txHash) {
+  if (config.simulate || !txHash) return null;
+  try {
+    const r = await readReceipt(txHash);
+    return r?.feeInToken ?? null;
+  } catch (e) {
+    log(`không đọc được phí settle: ${e.message}`);
+    return null;
+  }
+}
+
 async function paidSignal(req, res) {
+  // Trước khi báo giá, agent hỏi sổ của chính nó xem lượt bán này có lãi không.
+  // Đây là lần đầu bảng cân đối được quyền CHẶN một hành động, thay vì chỉ ghi
+  // lại sau khi hành động đã xảy ra.
+  const q = priceNow();
+  if (!q.sell) {
+    log(`⛔ ngừng bán: ${q.why}`);
+    record({ type: "revenue", status: "refused", reason: q.why, observedCost: q.observedCost, floor: q.floor });
+    return json(res, 503, {
+      error: "not selling at a profit right now",
+      detail: q.why,
+      observedSettlementCost: q.observedCost,
+      priceFloor: q.floor,
+      maxPrice: config.pricing.maxPrice,
+    });
+  }
+
+  const PRICE = q.price;
   const payment = readPayment(req, { priceUsdc: PRICE });
 
   if (!payment.ok) {
-    log(`402 · ${payment.why}`);
+    log(`402 · ${money(PRICE)} (${q.basis}) · ${payment.why}`);
     return challenge(res, req, {
       priceUsdc: PRICE,
       description: "Live fair-value and mispricing signal for short-dated crypto prediction markets.",
@@ -67,15 +111,25 @@ async function paidSignal(req, res) {
     return json(res, 503, { error: "paid but upstream data unavailable", detail: e.message, owed: true });
   }
 
+  // Thu tiền xong thì đo luôn việc thu đó tốn bao nhiêu. Không đo ngay thì mãi
+  // mãi không đo được: sau này chỉ còn số tiền vào, không còn dấu vết chi phí.
+  const settlementCost = await costOfSettling(settled.transactionHash);
+
   record({
     type: "revenue", status: "settled", amountUsdc: PRICE,
+    priceBasis: q.basis,
+    settlementCost,
     from: payment.authorization.from,
     executionId: settled.executionId ?? null,
     txHash: settled.transactionHash ?? null,
     txLink: settled.transactionLink ?? null,
     simulated: config.simulate,
   });
-  log(`💰 +${money(PRICE)} từ ${payment.authorization.from.slice(0, 10)}… ${settled.transactionHash ?? "(mô phỏng)"}`);
+  log(
+    `💰 +${money(PRICE)} (${q.basis}) từ ${payment.authorization.from.slice(0, 10)}… ` +
+    `${settled.transactionHash ?? "(mô phỏng)"}` +
+    (settlementCost != null ? ` · phí ${money(settlementCost)}` : "")
+  );
 
   json(res, 200, {
     resource: "/signal",
@@ -95,15 +149,29 @@ createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
   try {
     if (path === "/signal") return await paidSignal(req, res);
-    if (path === "/ledger") return json(res, 200, { summary: summary(), entries: readLedger().slice(-50) });
+    if (path === "/ledger")
+      return json(res, 200, {
+        summary: summary(),
+        economics: unitEconomics(readLedger()),
+        entries: readLedger().slice(-50),
+      });
+    const q = priceNow();
     return json(res, 200, {
       service: "An agent with its own balance sheet",
       chain: config.chain.name,
       wallet: config.wallet,
       simulate: config.simulate,
+      pricing: {
+        current: q.price,
+        basis: q.basis,
+        observedSettlementCost: q.observedCost,
+        minMargin: config.pricing.minMargin,
+        maxPrice: config.pricing.maxPrice,
+        note: "Price is derived from measured settlement cost, not fixed. The agent stops selling rather than sell below its floor.",
+      },
       endpoints: {
-        "GET /signal": `${PRICE} USDC — x402 exact, settled through KeeperHub`,
-        "GET /ledger": "free — every decision and every payment",
+        "GET /signal": `${q.sell ? q.price : "not selling"} ${config.chain.token.symbol} — x402 exact, settled through KeeperHub`,
+        "GET /ledger": "free — every decision, every payment, and the unit economics",
       },
     });
   } catch (e) {
@@ -111,6 +179,11 @@ createServer(async (req, res) => {
     json(res, 500, { error: e.message });
   }
 }).listen(PORT, () => {
+  const q = priceNow();
   log(`dịch vụ chạy · http://localhost:${PORT} · ${config.chain.name} · ${config.simulate ? "MÔ PHỎNG" : "THẬT"}`);
-  log(`/signal giá ${money(PRICE)} · thu về ${config.wallet}`);
+  log(
+    q.sell
+      ? `/signal giá ${money(q.price)} (${q.basis}) · thu về ${config.wallet}`
+      : `/signal NGỪNG BÁN · ${q.why}`
+  );
 });

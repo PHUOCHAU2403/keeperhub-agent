@@ -102,6 +102,45 @@ differs, and the ledger records which one it got:
 
 ---
 
+## The agent prices itself from its own books
+
+Until this point the balance sheet only reported. Now it decides.
+
+Before quoting a price the agent asks its own ledger what a settlement has
+actually cost it on this chain, and refuses to sell below cost plus a required
+margin. Run against the real fee measured on Tempo (0.000021 PathUSD):
+
+```
+observed cost 0.000021  ·  source: transfer-fee  ·  samples: 1
+
+list price 0.01                        -> SELL 0.01      (configured, floor 0.000031)
+list price 0.00001, below cost         -> SELL 0.000031  (cost-plus)
+list price 0.00001, ceiling 0.00002    -> NOT SELLING — floor 0.000031 exceeds the ceiling
+```
+
+The ceiling matters as much as the floor, and for the same reason the spend
+guards exist. On the spend side the agent may not let itself overspend; on the
+revenue side it may not let itself raise prices without bound as costs climb.
+Hitting either limit stops the action. Selling at a loss and gouging are the
+same failure viewed from opposite ends.
+
+The number carries its provenance. `costSource` is `settlement` when measured
+from actual revenue settlements and `transfer-fee` when estimated from the fees
+the agent has paid moving its own money on that chain. Fees are never averaged
+across chains — PathUSD on Tempo and sponsored ETH gas on Base are not the same
+unit, and a mean of the two would be a number with no meaning that the agent
+would then price against.
+
+**Known limitation.** x402's `exact` scheme settles through EIP-3009
+`transferWithAuthorization`. Tempo's enshrined stablecoins do not implement it —
+`authorizationState` reverts, `nonces` returns, and `eth_getCode` comes back one
+byte long, so these are precompiles exposing EIP-2612 permit instead. The
+revenue endpoint therefore runs on Base, and the Tempo cost figure comes from
+the agent's own transfer fees rather than from settlements. This is the same
+wall I hit on Arc, where native USDC has no EIP-3009 either.
+
+---
+
 ## Design decisions worth defending
 
 **Gas sponsorship removed a subsystem.** The first design had the agent hold ETH,
@@ -112,9 +151,10 @@ Verify first, build second.
 
 **Thinking is separated from doing.** `rules.js` is pure functions. Every money
 decision is testable with no network, no funded wallet, and no waiting on a
-chain. 23 tests cover the decision boundaries, every guardrail rejection, and
-the memo encoding. Anything that moves money should be provable offline — by the
-time you learn the behaviour from a live API call, it is already too late.
+chain. 41 tests cover the decision boundaries, every guardrail rejection, the
+memo encoding, and the pricing floor and ceiling. Anything that moves money
+should be provable offline — by the time you learn the behaviour from a live API
+call, it is already too late.
 
 **The agent must be able to refuse itself.** Guards run *before* the API call,
 never after. A rule can want to move 995; the guard is what stops it. The test
@@ -159,7 +199,7 @@ guards, API round-trip — without broadcasting. Going live takes a deliberate
 
 ```bash
 cp .env.example .env      # add your kh_ API key
-npm test                  # 23 offline tests, no network
+npm test                  # 41 offline tests, no network
 npm run once              # one cycle, simulated
 npm run loop              # continuous
 npm run status            # ledger summary
@@ -181,6 +221,7 @@ npm run buy               # test buyer, signs an EIP-3009 authorization
 ```
 src/config.js      chains, thresholds, guardrail limits — all tunables in one place
 src/rules.js       the decisions, as pure functions
+src/economics.js   unit economics and self-pricing, also pure
 src/memo.js        bytes32 reconciliation references for TIP-20
 src/keeperhub.js   thin REST client — only the calls the agent needs
 src/receipt.js     independent verification against a public RPC
