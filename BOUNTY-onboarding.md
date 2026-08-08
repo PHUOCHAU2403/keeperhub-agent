@@ -126,7 +126,26 @@ hash, not your wallet address."*
 
 ## Found later, while building on top
 
-These three came out of real use after the report above. Not yet sent.
+These three came out of real use after the report above, and were sent on
+4 August. Joel replied on 7 August, again cc'ing Simon:
+
+> "Thank you, these were good ones. **All three are addressed and will go out
+> with the next release**: the search behaviour, the ABI decoder message, and
+> the on-chain appearance page, which is **now per-network with Tempo covered**.
+> […] Really appreciate the detail you put into these. **Keep them coming.**"
+
+So the running total is **seven findings reported, seven accepted and shipped**,
+across two rounds, both confirmed in writing.
+
+One correction, which belongs here rather than buried: Joel could not reproduce
+finding 5, and he was right. I re-ran it on 8 August and a bare `swap` now
+returns 26 actions including `uniswap/swap-exact-input`. The tool's own
+description today reads "Keyword search across action names, **descriptions**,
+and action types" — which is exactly the behaviour that was missing. Whether
+that wording is new or my original run hit a transient state, I cannot tell from
+outside, so finding 5 should be read as unconfirmed rather than as a defect that
+still stands. It is left in below because the reasoning about search behaviour
+holds regardless, but the evidence for it does not.
 
 ### 5. `search_protocol_actions` does not search action descriptions
 
@@ -205,11 +224,12 @@ the agent's own book.
 
 ## Evidence
 
-- **Confirmation email** from Joel Orzet, KeeperHub Engineer, 4 Aug 2026
-  (cc simon@keeperhub.com), subject *Re: KeeperHub setup feedback* — available
-  on request.
+- **First confirmation** from Joel Orzet, KeeperHub Engineer, 4 Aug 2026
+  (cc simon@keeperhub.com): all four findings checked out, all merged.
+- **Second confirmation**, 7 Aug 2026, same thread and cc: all three later
+  findings addressed and shipping with the next release.
 - **Original report** sent 3 Aug 2026 to simon@keeperhub.com, one day after
-  signup.
+  signup. Second report 4 Aug. Screenshots of both replies available.
 - **Working agent** built during the same period, proving the path these fixes
   clear: https://github.com/PHUOCHAU2403/keeperhub-agent
 
