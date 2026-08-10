@@ -16,33 +16,33 @@ const REAL_TX_MEMO = "INV-KH-001";
 const REAL_TX_BYTES32 =
   "0x494e562d4b482d30303100000000000000000000000000000000000000000000";
 
-test("khớp đúng bytes32 mà chain thật đã ghi", () => {
+test("matches the exact bytes32 a real transaction wrote on chain", () => {
   assert.equal(encodeMemo(REAL_TX_MEMO), REAL_TX_BYTES32);
 });
 
-test("giải mã được memo lấy từ chain thật", () => {
+test("decodes a memo taken from a real on-chain receipt", () => {
   assert.equal(decodeMemo(REAL_TX_BYTES32), REAL_TX_MEMO);
 });
 
-test("encode rồi decode thì về nguyên bản", () => {
+test("encode then decode round-trips unchanged", () => {
   for (const s of ["A", "SWEEP-0001-20260805", "x".repeat(32), "phí 0.000196"]) {
     assert.equal(decodeMemo(encodeMemo(s)), s);
   }
 });
 
-test("luôn ra đúng 32 byte, bất kể chuỗi ngắn dài", () => {
+test("always produces exactly 32 bytes, whatever the input length", () => {
   for (const s of ["", "A", "SWEEP-0001-20260805"]) {
     assert.equal(encodeMemo(s).length, 2 + 64);
   }
 });
 
-test("quá 32 byte thì ném lỗi, không cắt cụt âm thầm", () => {
+test("throws past 32 bytes instead of truncating silently", () => {
   // Cắt cụt là kiểu hỏng tệ nhất ở đây: giao dịch vẫn lên chain, vẫn trông như
   // thành công, nhưng tham chiếu đối soát thì sai — và không ai biết.
   assert.throws(() => encodeMemo("x".repeat(33)), /tối đa 32/);
 });
 
-test("đếm theo BYTE chứ không theo ký tự", () => {
+test("counts BYTES, not characters", () => {
   // "ế" (U+1EBF) tốn 3 byte UTF-8, nên 11 ký tự = 33 byte. Đếm theo độ dài
   // chuỗi sẽ thấy 11 và cho qua, rồi hỏng lúc lên chain.
   const s = "ế".repeat(11);
@@ -54,12 +54,12 @@ test("đếm theo BYTE chứ không theo ký tự", () => {
   assert.equal(decodeMemo(encodeMemo("ế".repeat(10))), "ế".repeat(10));
 });
 
-test("hex sai định dạng thì từ chối", () => {
+test("rejects malformed hex", () => {
   assert.throws(() => decodeMemo("0x1234"), /không hợp lệ/);
   assert.throws(() => decodeMemo("không phải hex"), /không hợp lệ/);
 });
 
-test("sweepMemo đệm số chu kỳ để sắp xếp được theo thứ tự chuỗi", () => {
+test("sweepMemo pads the cycle number so references sort as strings", () => {
   const d = new Date("2026-08-05T00:00:00Z");
   assert.equal(sweepMemo(1, d), "SWEEP-0001-20260805");
   assert.equal(sweepMemo(42, d), "SWEEP-0042-20260805");

@@ -35,14 +35,14 @@ const sweep = (fee) => ({
 
 // --- đọc sổ ------------------------------------------------------------
 
-test("sổ rỗng không sinh ra số bịa", () => {
+test("an empty ledger invents no numbers", () => {
   const e = unitEconomics([]);
   assert.equal(e.calls, 0);
   assert.equal(e.revenue, 0);
   assert.equal(e.avgCostPerCall, null);
 });
 
-test("cộng đúng doanh thu và chi phí", () => {
+test("sums revenue and cost correctly", () => {
   const e = unitEconomics([sale(0.01, 0.000021), sale(0.01, 0.000019)]);
   assert.equal(e.calls, 2);
   assert.equal(e.revenue, 0.02);
@@ -50,7 +50,7 @@ test("cộng đúng doanh thu và chi phí", () => {
   assert.equal(e.grossProfit, 0.01996);
 });
 
-test("chi phí bình quân chỉ chia cho số lượt ĐO ĐƯỢC", () => {
+test("average cost divides by MEASURED settlements only, never by all of them", () => {
   // Ba lượt bán, chỉ một lượt đo được phí. Chia cho 3 sẽ ra 0.000007 và agent
   // tưởng mình rẻ gấp ba lần thực tế — rồi định giá dưới giá vốn.
   const e = unitEconomics([sale(0.01, 0.000021), sale(0.01), sale(0.01)]);
@@ -59,40 +59,40 @@ test("chi phí bình quân chỉ chia cho số lượt ĐO ĐƯỢC", () => {
   assert.equal(e.avgCostPerCall, 0.000021);
 });
 
-test("chỉ tính lượt đã settle, không tính lượt còn nợ hàng", () => {
+test("counts settled sales only, not the ones still owed a delivery", () => {
   const rows = [sale(0.01, 0.00002), { chain: CHAIN, type: "revenue", status: "owed", amountUsdc: 0.01 }];
   const e = unitEconomics(rows);
   assert.equal(e.calls, 1);
   assert.equal(e.owed, 1);
 });
 
-test("bỏ qua dòng không phải doanh thu", () => {
+test("ignores rows that are not revenue", () => {
   const rows = [sale(0.01, 0.00002), { chain: CHAIN, type: "decision", action: "transfer", amount: 5 }];
   assert.equal(unitEconomics(rows).revenue, 0.01);
 });
 
 // --- nguồn của con số chi phí -------------------------------------------
 
-test("ưu tiên chi phí đo từ chính lượt thu", () => {
+test("prefers cost measured from the settlements themselves", () => {
   const e = unitEconomics([sale(0.01, 0.00005), sweep(0.000021)], CHAIN);
   assert.equal(e.costSource, "settlement");
   assert.equal(e.observedCost, 0.00005);
 });
 
-test("không có lượt thu nào đo được thì lùi về phí chuyển khoản, và nói rõ nguồn", () => {
+test("falls back to transfer fees when no settlement was measurable, and says which source it used", () => {
   const e = unitEconomics([sale(0.01), sweep(0.000021), sweep(0.000019)], CHAIN);
   assert.equal(e.costSource, "transfer-fee");
   assert.equal(e.observedCost, 0.00002);
   assert.equal(e.avgCostPerCall, null, "không được giả vờ đã đo được từ lượt thu");
 });
 
-test("không có dữ liệu nào thì trả null, không trả 0", () => {
+test("returns null when there is no data, never 0", () => {
   const e = unitEconomics([sale(0.01), sweep()], CHAIN);
   assert.equal(e.observedCost, null);
   assert.equal(e.costSource, null);
 });
 
-test("chỉ đếm phí của lệnh ĐÃ thực thi", () => {
+test("counts fees from executed actions only", () => {
   // Lệnh bị guard chặn không tốn phí nào; đưa nó vào bình quân là bịa dữ liệu.
   const blocked = { chain: CHAIN, type: "decision", executed: false, blocked: "vượt trần" };
   const e = unitEconomics([blocked, sweep(0.00002)], CHAIN);
@@ -100,7 +100,7 @@ test("chỉ đếm phí của lệnh ĐÃ thực thi", () => {
   assert.equal(e.observedCost, 0.00002);
 });
 
-test("KHÔNG trộn phí giữa các chain", () => {
+test("never averages fees across chains — PathUSD and sponsored ETH gas are different units", () => {
   // Phí Tempo tính bằng PathUSD, phí Base là gas ETH được tài trợ. Cộng chung
   // ra một số vô nghĩa, rồi agent định giá dựa trên số vô nghĩa đó.
   const rows = [
@@ -115,7 +115,7 @@ test("KHÔNG trộn phí giữa các chain", () => {
 
 // --- định giá ----------------------------------------------------------
 
-test("chưa đo được chi phí thì bán theo giá cấu hình, và nói rõ", () => {
+test("prices at the list price when cost is unmeasured, and labels it as such", () => {
   const q = quote({ observedCost: null });
   assert.equal(q.sell, true);
   assert.equal(q.price, 0.01);
@@ -123,14 +123,14 @@ test("chưa đo được chi phí thì bán theo giá cấu hình, và nói rõ"
   assert.equal(q.observedCost, null);
 });
 
-test("chi phí thấp thì giá cấu hình thắng, không tự hạ giá", () => {
+test("low cost leaves the list price standing — it never undercuts itself", () => {
   // Sàn = 0.000021 × 1.5 = 0.0000315, thấp hơn giá niêm yết nhiều.
   const q = quote({ observedCost: 0.000021 });
   assert.equal(q.price, 0.01);
   assert.equal(q.basis, "configured");
 });
 
-test("chi phí tăng đủ cao thì giá tự nâng lên sàn", () => {
+test("rising cost lifts the price to the floor", () => {
   // Sàn = 0.02 × 1.5 = 0.03 > giá niêm yết 0.01
   const q = quote({ observedCost: 0.02 });
   assert.equal(q.sell, true);
@@ -138,7 +138,7 @@ test("chi phí tăng đủ cao thì giá tự nâng lên sàn", () => {
   assert.equal(q.basis, "cost-plus");
 });
 
-test("chi phí đẩy sàn vượt trần thì NGỪNG BÁN, không bán lỗ", () => {
+test("when the floor clears the ceiling it STOPS SELLING rather than sell at a loss", () => {
   // Sàn = 0.04 × 1.5 = 0.06 > trần 0.05
   const q = quote({ observedCost: 0.04 });
   assert.equal(q.sell, false);
@@ -147,24 +147,24 @@ test("chi phí đẩy sàn vượt trần thì NGỪNG BÁN, không bán lỗ", 
   assert.match(q.why, /vượt trần/);
 });
 
-test("ngay tại trần thì vẫn bán, vượt một chút mới dừng", () => {
+test("sells exactly at the ceiling, stops just past it", () => {
   // Sàn đúng bằng trần 0.05 → chi phí 0.05/1.5
   assert.equal(quote({ observedCost: 0.05 / 1.5 }).sell, true);
   assert.equal(quote({ observedCost: 0.0334 }).sell, false);
 });
 
-test("biên yêu cầu thực sự được áp, không phải trang trí", () => {
+test("the required margin is actually enforced, not decorative", () => {
   const q = quote({ observedCost: 0.02, minMargin: 0.5, configuredPrice: 0 });
   assert.equal(q.price, 0.03);
   assert.ok(q.price > 0.02, "giá phải cao hơn giá vốn");
 });
 
-test("biên 0 vẫn bán đúng giá vốn, không âm", () => {
+test("a zero margin sells at cost, never below", () => {
   const q = quote({ observedCost: 0.02, minMargin: 0, configuredPrice: 0 });
   assert.equal(q.price, 0.02);
 });
 
-test("giá luôn làm tròn 6 chữ số — đúng số thập phân của token", () => {
+test("prices round to 6 decimals, matching the token", () => {
   const q = quote({ observedCost: 0.0000071, minMargin: 0.5, configuredPrice: 0 });
   assert.equal(String(q.price).split(".")[1].length <= 6, true);
 });
