@@ -1,17 +1,45 @@
-// Mặt tiền của agent — một trang đọc thẳng sổ cái.
+// The agent's shopfront — one page, read straight from the ledger.
 //
-// Lý do tồn tại: mọi bằng chứng của dự án này đến giờ đều nằm trong terminal
-// hoặc trong JSON. Người đánh giá sẽ không clone repo, không đặt API key, và
-// không chạy vòng lặp. Nếu phải chạy code mới thấy được agent làm gì thì coi
-// như không thấy.
+// Why it exists: until this page, every piece of evidence lived in a terminal
+// or in JSON. A reviewer will not clone the repo, set an API key and run the
+// loop. If the agent's behaviour is only visible to someone who does, it is not
+// visible.
 //
-// Trang này KHÔNG có số liệu riêng. Mọi con số đều đọc từ data/ledger.jsonl —
-// cùng nguồn với `npm run status`. Không có đường nào để nó đẹp hơn sự thật.
+// The page has no figures of its own. Every number comes from data/ledger.jsonl,
+// the same source as `npm run status`, so there is no path by which it can look
+// better than the truth.
 
 import { config, explorerFor } from "./config.js";
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/**
+ * Translate reasons written before the interface was in English.
+ *
+ * The ledger is append-only, so rows written on 5 August still carry the
+ * Vietnamese wording the rules produced at the time. Rewriting the file to tidy
+ * the display would break the one property the ledger is for, and running a
+ * dozen empty cycles to push them off the page would pad the very restraint
+ * count this project offers as evidence. So the translation happens here, at
+ * render time, and the record stays exactly as it was written.
+ */
+const LEGACY = [
+  [/^Số dư ([\d.]+) (\S+) vượt vốn lưu động ([\d.]+) \S+\..*$/,
+   (m) => `Balance ${m[1]} ${m[2]} exceeds the ${m[3]} ${m[2]} working-capital floor. Sweeping the surplus to treasury.`],
+  [/^Dư ([\d.]+) (\S+) — dưới ngưỡng quét ([\d.]+) \S+\..*$/,
+   (m) => `Surplus ${m[1]} ${m[2]} is under the ${m[3]} ${m[2]} minimum. Holding.`],
+  [/^vượt trần một lệnh ([\d.]+) (\S+)$/, (m) => `over the ${m[1]} ${m[2]} per-action cap`],
+  [/^vượt ngân sách phiên .*$/, () => "over the session budget"],
+  [/^địa chỉ nhận không hợp lệ$/, () => "recipient address is malformed"],
+  [/^số tiền không dương$/, () => "amount is not positive"],
+];
+
+const englishReason = (text) => {
+  const t = String(text ?? "");
+  for (const [re, fn] of LEGACY) { const m = t.match(re); if (m) return fn(m); }
+  return t;
+};
 
 const n6 = (v) => (v == null ? "—" : Number(v).toFixed(6));
 const short = (h) => (h ? `${h.slice(0, 10)}…${h.slice(-6)}` : "—");
@@ -31,7 +59,7 @@ export function renderDashboard({ economics, summary, entries, quote }) {
       return `<tr>
         <td class="dim">${esc(when(r.ts))}</td>
         <td>${esc(r.chain ?? "")}</td>
-        <td>${r.type === "revenue" ? "thu" : "chi"}</td>
+        <td>${r.type === "revenue" ? "in" : "out"}</td>
         <td class="num">${esc(n6(r.amountUsdc ?? r.amount))}</td>
         <td class="num dim">${esc(n6(r.settlementCost ?? r.feeInToken))}</td>
         <td class="mono">${r.memo ? esc(r.memo) : '<span class="dim">—</span>'}</td>
@@ -46,16 +74,16 @@ export function renderDashboard({ economics, summary, entries, quote }) {
     .reverse()
     .map((r) => {
       const verdict = r.blocked
-        ? `<span class="tag stop">chặn</span>`
+        ? `<span class="tag stop">blocked</span>`
         : r.status === "refused"
-        ? `<span class="tag stop">ngừng bán</span>`
+        ? `<span class="tag stop">not selling</span>`
         : r.executed
-        ? `<span class="tag go">đã thực thi</span>`
-        : `<span class="tag hold">giữ</span>`;
+        ? `<span class="tag go">executed</span>`
+        : `<span class="tag hold">held</span>`;
       return `<tr>
         <td class="dim">${esc(when(r.ts))}</td>
         <td>${verdict}</td>
-        <td class="reason">${esc(r.blocked || r.reason || "")}</td>
+        <td class="reason">${esc(englishReason(r.blocked || r.reason || ""))}</td>
       </tr>`;
     })
     .join("");
@@ -138,71 +166,72 @@ export function renderDashboard({ economics, summary, entries, quote }) {
   <div class="meta">
     <span>${esc(config.chain.name)}</span>
     <span class="mono">${esc(config.wallet)}</span>
-    <span>${config.simulate ? "MÔ PHỎNG" : "THẬT"}</span>
+    <span>${config.simulate ? "SIMULATION" : "LIVE"}</span>
   </div>
 
-  <h2>Quyết định giá lúc này</h2>
+  <h2>Pricing decision, right now</h2>
   <div class="price">
-    <div class="row"><span>Giá đang đòi</span>
-      <b class="mono">${quote.sell ? esc(n6(quote.price)) + " " + esc(sym) : "NGỪNG BÁN"}</b></div>
-    <div class="row"><span>Căn cứ</span><span class="mono">${esc(quote.basis)}</span></div>
-    <div class="row"><span>Chi phí settle đo được</span>
-      <span class="mono">${esc(n6(economics.observedCost))} ${economics.costSource ? `<span class="dim">· ${esc(economics.costSource)} · ${economics.feeSamples} mẫu</span>` : '<span class="dim">· chưa đo được</span>'}</span></div>
-    <div class="row"><span>Giá sàn (vốn + biên ${Math.round(config.pricing.minMargin * 100)}%)</span>
+    <div class="row"><span>Asking price</span>
+      <b class="mono">${quote.sell ? esc(n6(quote.price)) + " " + esc(sym) : "NOT SELLING"}</b></div>
+    <div class="row"><span>Basis</span><span class="mono">${esc(quote.basis)}</span></div>
+    <div class="row"><span>Measured settlement cost</span>
+      <span class="mono">${esc(n6(economics.observedCost))} ${economics.costSource ? `<span class="dim">· ${esc(economics.costSource)} · ${economics.feeSamples} samples</span>` : '<span class="dim">· not measurable yet</span>'}</span></div>
+    <div class="row"><span>Floor (cost + ${Math.round(config.pricing.minMargin * 100)}% margin)</span>
       <span class="mono">${esc(n6(quote.floor))}</span></div>
-    <div class="row"><span>Trần</span><span class="mono">${esc(n6(config.pricing.maxPrice))}</span></div>
-    ${quote.why ? `<div class="row"><span class="stop">Lý do dừng</span><span class="reason">${esc(quote.why)}</span></div>` : ""}
+    <div class="row"><span>Ceiling</span><span class="mono">${esc(n6(config.pricing.maxPrice))}</span></div>
+    ${quote.why ? `<div class="row"><span class="stop">Why it stopped</span><span class="reason">${esc(quote.why)}</span></div>` : ""}
   </div>
-  <p class="note">Giá không phải hằng số trong cấu hình. Agent đọc phí nó đã thật sự trả trên chain
-  này rồi tự đặt sàn. Chạm trần thì dừng bán — không bán lỗ, cũng không nâng giá vô hạn.</p>
+  <p class="note">The price is not a constant in a config file. The agent reads the fees it has
+  actually paid on this chain and sets its own floor. When the floor clears the
+  ceiling it stops selling — it will not sell at a loss, and it will not raise
+  prices without bound.</p>
 
-  <h2>Bảng cân đối · ${esc(economics.chain)}</h2>
+  <h2>Balance sheet · ${esc(economics.chain)}</h2>
   <div class="grid">
-    <div class="card"><div class="k">Doanh thu</div>
+    <div class="card"><div class="k">Revenue</div>
       <div class="v">${esc(n6(economics.revenue))}<small>${esc(sym)}</small></div>
-      <div class="note">${economics.calls} lượt bán</div></div>
-    <div class="card"><div class="k">Chi phí settle</div>
+      <div class="note">${economics.calls} sales</div></div>
+    <div class="card"><div class="k">Settlement cost</div>
       <div class="v">${economics.costMeasured ? esc(n6(economics.settlementCost)) + `<small>${esc(sym)}</small>` : "—"}</div>
-      <div class="note">${economics.costMeasured} đo được · ${economics.costUnmeasured} không đo được</div></div>
-    <div class="card"><div class="k">Lãi gộp</div>
+      <div class="note">${economics.costMeasured} measured · ${economics.costUnmeasured} not measurable</div></div>
+    <div class="card"><div class="k">Gross profit</div>
       <div class="v">${esc(n6(economics.grossProfit))}<small>${esc(sym)}</small></div>
-      <div class="note">${economics.costMeasured ? "" : "chưa trừ được phí — "}${economics.owed ? economics.owed + " lượt còn nợ hàng" : "không nợ hàng ai"}</div></div>
-    <div class="card"><div class="k">Đã chuyển</div>
+      <div class="note">${economics.costMeasured ? "" : "fee not yet deductible — "}${economics.owed ? economics.owed + " sales still owed a delivery" : "nothing owed"}</div></div>
+    <div class="card"><div class="k">Moved</div>
       <div class="v">${esc(n6(summary.moved))}<small>${esc(sym)}</small></div>
-      <div class="note">${summary.chainVerified ?? 0} lượt đã đối chiếu lại với chain</div></div>
+      <div class="note">${summary.chainVerified ?? 0} re-checked against the chain</div></div>
   </div>
 
-  <h2>Kiềm chế · ${esc(summary.chain)}</h2>
+  <h2>Restraint · ${esc(summary.chain)}</h2>
   <div class="grid">
-    <div class="card"><div class="k">Chu kỳ</div><div class="v">${esc(summary.cycles)}</div></div>
-    <div class="card"><div class="k">Đã thực thi</div><div class="v">${esc(acted)}</div></div>
-    <div class="card"><div class="k">Đã kiềm lại</div><div class="v">${esc(held)}</div></div>
-    <div class="card"><div class="k">Tỷ lệ kiềm chế</div><div class="v">${restraint}<small>%</small></div>
-      <div class="note">Sổ chỉ có hành động thì không chứng minh được agent biết dừng.</div></div>
+    <div class="card"><div class="k">Cycles</div><div class="v">${esc(summary.cycles)}</div></div>
+    <div class="card"><div class="k">Executed</div><div class="v">${esc(acted)}</div></div>
+    <div class="card"><div class="k">Held back</div><div class="v">${esc(held)}</div></div>
+    <div class="card"><div class="k">Restraint rate</div><div class="v">${restraint}<small>%</small></div>
+      <div class="note">A ledger with only actions cannot show that an agent knows when to hold.</div></div>
   </div>
 
-  <h2>Giao dịch trên chain · mọi mạng</h2>
-  <p class="note" style="margin:-6px 0 12px">Bảng này liệt kê cả các mạng khác, vì mỗi dòng
-  tự mang đơn vị của nó. Các ô tổng phía trên thì không — cộng PathUSD với USDC ra một số
-  không có đơn vị, nên mọi con số tổng đều bị khoá theo đúng một chain.</p>
+  <h2>On-chain transactions · all networks</h2>
+  <p class="note" style="margin:-6px 0 12px">This table spans every network, because each row carries its own unit. The
+  totals above do not — adding PathUSD to USDC gives a number with no unit — so
+  every aggregate is locked to a single chain.</p>
   <div class="scroll"><table>
-    <tr><th>Lúc</th><th>Chain</th><th>Loại</th><th class="num">Số tiền</th>
-        <th class="num">Phí</th><th>Memo</th><th>Hash</th></tr>
-    ${txRows || '<tr><td colspan="7" class="dim">Chưa có giao dịch nào.</td></tr>'}
+    <tr><th>When</th><th>Chain</th><th>Kind</th><th class="num">Amount</th>
+        <th class="num">Fee</th><th>Memo</th><th>Hash</th></tr>
+    ${txRows || '<tr><td colspan="7" class="dim">No transactions yet.</td></tr>'}
   </table></div>
 
-  <h2>Nhật ký quyết định</h2>
+  <h2>Decision log</h2>
   <div class="scroll"><table>
-    <tr><th>Lúc</th><th>Kết luận</th><th>Lý do</th></tr>
-    ${decisions || '<tr><td colspan="3" class="dim">Chưa có quyết định nào.</td></tr>'}
+    <tr><th>When</th><th>Verdict</th><th>Reason</th></tr>
+    ${decisions || '<tr><td colspan="3" class="dim">No decisions yet.</td></tr>'}
   </table></div>
 
   <footer>
-    Mọi con số trên trang này đọc thẳng từ <span class="mono">data/ledger.jsonl</span> —
-    cùng nguồn với <span class="mono">npm run status</span>. Không có số liệu nào được
-    tính riêng cho trang hiển thị.<br>
-    Dữ liệu thô: <a href="/ledger">/ledger</a> ·
-    Mã nguồn: <a href="https://github.com/PHUOCHAU2403/keeperhub-agent" target="_blank" rel="noopener">github.com/PHUOCHAU2403/keeperhub-agent</a>
+    Every figure on this page is read straight from <span class="mono">data/ledger.jsonl</span> —
+    the same source as <span class="mono">npm run status</span>. No number is computed for display.<br>
+    Raw data: <a href="/ledger">/ledger</a> ·
+    Source: <a href="https://github.com/PHUOCHAU2403/keeperhub-agent" target="_blank" rel="noopener">github.com/PHUOCHAU2403/keeperhub-agent</a>
   </footer>
 </div>`;
 }

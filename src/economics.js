@@ -99,8 +99,8 @@ export function quote({
       floor,
       sell: false,
       why:
-        `chi phí settle ${observedCost} đẩy giá sàn lên ${floor}, ` +
-        `vượt trần ${maxPrice}. Không bán lỗ, cũng không nâng giá vô hạn.`,
+        `settlement cost ${observedCost} lifts the floor to ${floor}, ` +
+        `clearing the ${maxPrice} ceiling. It will not sell at a loss, nor raise prices without bound.`,
     };
   }
 

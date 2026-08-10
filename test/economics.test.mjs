@@ -144,7 +144,7 @@ test("when the floor clears the ceiling it STOPS SELLING rather than sell at a l
   assert.equal(q.sell, false);
   assert.equal(q.price, null);
   assert.equal(q.basis, "refused");
-  assert.match(q.why, /vượt trần/);
+  assert.match(q.why, /ceiling/);
 });
 
 test("sells exactly at the ceiling, stops just past it", () => {

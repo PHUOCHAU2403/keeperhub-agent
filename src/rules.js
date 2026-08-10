@@ -20,8 +20,8 @@ export const RULES = [
         action: "transfer",
         skip: true,
         reason:
-          `Dư ${money(Math.max(surplus, 0))} — dưới ngưỡng quét ` +
-          `${money(config.rules.sweepMin)}. Giữ nguyên.`,
+          `Surplus ${money(Math.max(surplus, 0))} is under the ` +
+          `${money(config.rules.sweepMin)} minimum. Holding.`,
       };
     }
     return {
@@ -34,8 +34,8 @@ export const RULES = [
       // dưới — ý định thì giống hệt nhau ở mọi chain.
       memo: sweepMemo(s.cycle ?? 0),
       reason:
-        `Số dư ${money(s.balance)} vượt vốn lưu động ${money(config.rules.sweepFloor)}. ` +
-        `Quét phần dư về treasury.`,
+        `Balance ${money(s.balance)} exceeds the ${money(config.rules.sweepFloor)} working-capital floor. ` +
+        `Sweeping the surplus to treasury.`,
     };
   },
 ];
@@ -53,11 +53,11 @@ export function decide(state) {
  * `spent` truyền vào thay vì tự đọc sổ cái — để test được mà không cần file.
  */
 export function guard(intent, spent = 0) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(intent.to || "")) return "địa chỉ nhận không hợp lệ";
-  if (!(intent.amount > 0)) return "số tiền không dương";
+  if (!/^0x[0-9a-fA-F]{40}$/.test(intent.to || "")) return "recipient address is malformed";
+  if (!(intent.amount > 0)) return "amount is not positive";
   if (intent.amount > config.guards.maxPerAction)
-    return `vượt trần một lệnh ${money(config.guards.maxPerAction)}`;
+    return `over the ${money(config.guards.maxPerAction)} per-action cap`;
   if (spent + intent.amount > config.guards.sessionBudget)
-    return `vượt ngân sách phiên (đã chi ${money(spent)} / ${money(config.guards.sessionBudget)})`;
+    return `over the session budget (spent ${money(spent)} of ${money(config.guards.sessionBudget)})`;
   return null;
 }

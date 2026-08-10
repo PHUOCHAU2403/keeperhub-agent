@@ -21,7 +21,7 @@ const { decodeMemo } = await import("../src/memo.js");
 test("below the working-capital floor it does nothing", () => {
   const i = decide({ balance: 3 });
   assert.equal(i.skip, true);
-  assert.match(i.reason, /Giữ nguyên/);
+  assert.match(i.reason, /Holding/);
 });
 
 test("a surplus under the minimum still does nothing", () => {
@@ -51,29 +51,29 @@ test("the guard passes a valid action", () => {
 
 test("the guard blocks anything over the per-action cap", () => {
   const b = guard({ to: "0x000000000000000000000000000000000000dEaD", amount: 51 }, 0);
-  assert.match(b, /trần một lệnh/);
+  assert.match(b, /per-action cap/);
 });
 
 test("the guard blocks anything over the session budget", () => {
   const b = guard({ to: "0x000000000000000000000000000000000000dEaD", amount: 10 }, 195);
-  assert.match(b, /ngân sách phiên/);
+  assert.match(b, /session budget/);
 });
 
 test("the guard blocks a malformed recipient", () => {
-  assert.match(guard({ to: "0xnothex", amount: 1 }, 0), /địa chỉ/);
-  assert.match(guard({ to: "", amount: 1 }, 0), /địa chỉ/);
+  assert.match(guard({ to: "0xnothex", amount: 1 }, 0), /malformed/);
+  assert.match(guard({ to: "", amount: 1 }, 0), /malformed/);
 });
 
 test("the guard blocks a non-positive amount", () => {
-  assert.match(guard({ to: "0x000000000000000000000000000000000000dEaD", amount: 0 }, 0), /không dương/);
-  assert.match(guard({ to: "0x000000000000000000000000000000000000dEaD", amount: -5 }, 0), /không dương/);
+  assert.match(guard({ to: "0x000000000000000000000000000000000000dEaD", amount: 0 }, 0), /not positive/);
+  assert.match(guard({ to: "0x000000000000000000000000000000000000dEaD", amount: -5 }, 0), /not positive/);
 });
 
 test("a large balance is stopped by the guard, not skipped by the rule — the separation matters", () => {
   // Quy tắc muốn quét 995; guard mới là thứ chặn lại. Đúng thứ tự trách nhiệm.
   const i = decide({ balance: 1000 });
   assert.equal(i.amount, 995);
-  assert.match(guard(i, 0), /trần một lệnh/);
+  assert.match(guard(i, 0), /per-action cap/);
 });
 
 // --- tham chiếu đối soát ------------------------------------------------
