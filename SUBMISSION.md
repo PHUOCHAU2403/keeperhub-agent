@@ -109,8 +109,8 @@ HONESTY IN THE LEDGER
 
 The ledger records the cycles where the agent decided to do NOTHING, with the
 reason. A ledger containing only actions cannot show that an agent knows when to
-hold, and holding is the harder behaviour. A typical run: 11 cycles, 2 executed,
-9 held back.
+hold, and holding is the harder behaviour. Across both chains so far: 12 cycles,
+2 executed, 10 held back.
 
 It also keeps "not measurable" separate from "zero". On Base the fee is
 sponsored gas in another asset, so the agent cannot state a number — and writing
